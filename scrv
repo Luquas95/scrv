@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# scrv – toggle screensaver + screen lock
+# X11:     Cinnamon, GNOME, MATE, KDE, XFCE
+# Wayland: Hyprland (hypridle), Sway (swayidle), GNOME Wayland
+
+PIDFILE="/tmp/scrv-inhibit.pid"
+INTERVAL=20
+
+# Simulace aktivity přes všechna dostupná rozhraní
+poke() {
+    # X11: resetuje idle timer na úrovni X serveru
+    xset s reset 2>/dev/null
+
+    # DBus: freedesktop standard (GNOME, KDE, XFCE, Cinnamon, ...)
+    # + Cinnamon a GNOME vlastní rozhraní jako záloha
+    for dest in org.freedesktop.ScreenSaver org.cinnamon.ScreenSaver org.gnome.ScreenSaver; do
+        dbus-send --session --dest="$dest" --type=method_call \
+            "/${dest//./\/}" "${dest}.SimulateUserActivity" 2>/dev/null
+    done
+
+    # Přímá deaktivace pokud spořič přesto naběhl
+    cinnamon-screensaver-command --deactivate 2>/dev/null
+    gnome-screensaver-command    --deactivate 2>/dev/null
+}
+
+# Pozastavení/obnovení Wayland idle démonů přes signály
+idle_daemon_pause() {
+    pkill -SIGUSR1 hypridle 2>/dev/null  # hypridle: SIGUSR1 toggleuje pause/resume
+    pkill -SIGUSR1 swayidle 2>/dev/null  # swayidle: SIGUSR1 pausuje
+}
+
+idle_daemon_resume() {
+    pkill -SIGUSR1 hypridle 2>/dev/null  # hypridle: SIGUSR1 znovu → resume
+    pkill -SIGUSR2 swayidle 2>/dev/null  # swayidle: SIGUSR2 resumuje
+}
+
+# Nastavení gsettings pro všechna podporovaná DE
+gs_set() {
+    local val="$1"
+    # Cinnamon
+    gsettings set org.cinnamon.desktop.screensaver lock-enabled            "$val" 2>/dev/null
+    gsettings set org.cinnamon.desktop.screensaver idle-activation-enabled "$val" 2>/dev/null
+    # GNOME
+    gsettings set org.gnome.desktop.screensaver    lock-enabled            "$val" 2>/dev/null
+    # MATE
+    gsettings set org.mate.screensaver             lock-enabled            "$val" 2>/dev/null
+    gsettings set org.mate.screensaver             idle-activation-enabled "$val" 2>/dev/null
+}
+
+# ── toggle ──────────────────────────────────────────────────────────────────
+
+if [ -f "$PIDFILE" ]; then
+    pid=$(cat "$PIDFILE")
+    kill -0 "$pid" 2>/dev/null && kill "$pid"
+    rm -f "$PIDFILE"
+    idle_daemon_resume
+    gs_set true
+    xset s on +dpms 2>/dev/null
+    echo "🔒 Screensaver ZAPNUT"
+    exit 0
+fi
+
+# --- VYPNOUT ---
+gs_set false
+xset s off -dpms 2>/dev/null  # X11: vypne X screensaver i DPMS
+idle_daemon_pause              # Wayland: pozastaví hypridle/swayidle
+poke                           # okamžitě resetovat idle timery
+
+(
+    trap 'kill "$inhpid" 2>/dev/null; exit 0' TERM
+
+    # systemd-inhibit: inhibit na úrovni logind – funguje nezávisle na DE,
+    # respektují ho GNOME, KDE, XFCE i další; funguje i na Waylandu
+    if command -v systemd-inhibit &>/dev/null; then
+        systemd-inhibit --what=idle --who=scrv --why="Screensaver disabled" \
+            sleep infinity &>/dev/null &
+        inhpid=$!
+    fi
+
+    # Polling záloha pro DEs které ignorují logind inhibit nebo gsettings
+    while true; do
+        sleep "$INTERVAL"
+        poke
+    done
+) &
+pid=$!
+echo "$pid" > "$PIDFILE"
+
+echo "🔓 Screensaver VYPNUT (PID: $pid)"
+exit 0
