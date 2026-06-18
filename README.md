@@ -1,8 +1,8 @@
 # scrv
 
+[![Platform](https://img.shields.io/badge/platform-Linux-0078D4)](https://www.linux.org/)
 [![Language](https://img.shields.io/badge/language-bash-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/platform-Linux-0078D4)](https://www.linux.org/)
 [![GitHub Stars](https://img.shields.io/github/stars/Luquas95/scrv?style=social)](https://github.com/Luquas95/scrv)
 
 A simple bash script that toggles the screensaver and screen lock on Linux.
